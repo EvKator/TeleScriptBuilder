@@ -1,0 +1,14 @@
+{
+  "username": "VKLikeBot",
+  "script": [
+    {
+      "sendmsg": "/menu"
+    },
+    {
+      "callbackbtn": {
+        "Row": "0",
+        "Btn": "0"
+      }
+    }
+  ]
+}
