@@ -38,7 +38,7 @@ namespace Teleger
         public bool Authorized { get; set; }
         public string CurrentChatName { get; set; }
         public string Number { get; set; }
-        FileSessionStore store;
+        FakeSessionStore store;
 
         public string scriptsFilename { get; private set; }
         public bool recording { get; private set; }
@@ -49,49 +49,68 @@ namespace Teleger
         public static async Task<Manager> Create(string number)
         {
             Manager mngr = new Manager();
-            mngr.scripts = new List<Script>();
-            mngr.recording = false;
             mngr.CurrentChatName = "";
             mngr.Authorized = false;
             mngr.Number = number;
-            mngr.store = (new FileSessionStore());// "session.dat"
+            await mngr.ConnectClient();
+            mngr.scripts = new List<Script>();
+            return mngr;
+        }
+
+        public async Task ConnectClient()
+        {
+            bool connectedFromFile = await this.AuthWithFile();
+            if (!connectedFromFile)
+            {
+            //    this.client = new TelegramClient(apiId, apiHash);
+              //  await this.client.ConnectAsync();
+                string hashNumber = await this.client.SendCodeRequestAsync(this.Number);
+                for (int attemp = 0; attemp < 3 && !this.Authorized; attemp++)
+                {
+                    FormTeleCode ftc = new FormTeleCode();
+                    ftc.Question = "Enter the sms code";
+                    ftc.Text = this.Number;
+                    if (ftc.ShowDialog() == DialogResult.OK)
+                    {
+                        string code = ftc.Code;
+                        var user = await this.client.MakeAuthAsync(this.Number, hashNumber, code);
+                        this.Authorized = true;
+                    }
+                    else
+                        throw new Exception("Timeout exceeded");
+                }
+            }
+            this.Authorized = true;
+        }
+
+        private async Task<bool> AuthWithFile()
+        {
+            //this.store = (new FileSessionStore());// "session.dat"
+            this.store = new FakeSessionStore();
+            this.client = new TelegramClient(apiId, apiHash, this.store);
+            await this.client.ConnectAsync();
+            return this.client.IsUserAuthorized() && this.client.IsConnected;
+        }
+
+        public bool RemoveSession()
+        {
             try
             {
-                mngr.client = new TelegramClient(apiId, apiHash, mngr.store, number.ToString());
-                await mngr.client.ConnectAsync();
-                if (!mngr.client.IsUserAuthorized() || !mngr.client.IsConnected)
-                {
-                    string hashNumber = await mngr.client.SendCodeRequestAsync(number);
-                    for (int attemp = 0; attemp < 3 && !mngr.Authorized; attemp++)
-                    {
-                        FormTeleCode ftc = new FormTeleCode();
-                        ftc.Question = "Enter the sms code";
-                        ftc.Text = number;
-                        if (ftc.ShowDialog() == DialogResult.OK)
-                        {
-                            string code = ftc.Code;
-                            try
-                            {
-                                var user = await mngr.client.MakeAuthAsync(mngr.Number, hashNumber, code);
-                                mngr.Authorized = true;
-                            }
-                            catch (Exception ex)
-                            {
-                                MessageBox.Show(number + "Manager Create 0 error" + ex.Message);
-                            }
-                        }
-                        else break;
-                    }
-                }
-                mngr.Authorized = true;
-                //MessageBox.Show("Authorization success\n" + number);
+                System.IO.File.Delete(Number.ToString() + ".dat");
+                return true;
             }
-            catch(Exception ex)
+            catch
             {
-                MessageBox.Show(number + "Manager Create 1 error " + ex.Message);
+                return false;
             }
+        }
 
-            return mngr;
+        public async Task Reconnect()
+        {
+            Authorized = false;
+            store = null;
+
+            await this.ConnectClient();
         }
 
         public void StartRecording(string filename)
@@ -109,64 +128,6 @@ namespace Teleger
                                    select script.ToString()).ToArray();
             System.IO.File.WriteAllText(scriptsFilename, "{\n\t\"arr\":\n\t[" + String.Join("\n,\n", scriptsStr) + "\n\t]\n}");
 
-        }
-
-        public bool RemoveSession()
-        {
-            try
-            {
-                System.IO.File.Delete(Number.ToString() + ".dat");
-                return true;
-            }
-            catch
-            {
-                return false;
-            }
-        }
-
-        public async Task<bool> Reconnect()
-        {
-            Authorized = false;
-            store = null;
-            
-            try
-            {
-                store = (new FileSessionStore());// "session.dat"
-                this.client = new TelegramClient(apiId, apiHash, store, Number.ToString());
-                await client.ConnectAsync(false);
-                if (!client.IsUserAuthorized() || !client.IsConnected)
-                {
-                    string hashNumber = await client.SendCodeRequestAsync(Number);
-                    for (int attemp = 0; attemp < 3 && !Authorized; attemp++)
-                    {
-                        FormTeleCode ftc = new FormTeleCode();
-                        ftc.Question = "Enter the sms code";
-                        ftc.Text = this.Number;
-                        if (ftc.ShowDialog() == DialogResult.OK)
-                        {
-                            string code = ftc.Code;
-                            try
-                            {
-                                var user = await client.MakeAuthAsync(Number, hashNumber, code);
-                                Authorized = true;
-
-                            }
-                            catch (Exception ex)
-                            {
-                                MessageBox.Show(Number + "Manager Reconnect 0 error" + ex.Message);
-                            }
-                        }
-                        else break;
-                    }
-                }
-                Authorized = true;
-                return true;
-            }
-            catch(Exception ex)
-            {
-                MessageBox.Show(Number + "Manager Reconnect 1 error" + ex.Message);
-                return false;
-            }
         }
 
         public async Task<bool> SendMsg(string text)
